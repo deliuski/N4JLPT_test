@@ -25,6 +25,7 @@ export default function App() {
 
   // Lessons data state loaded dynamically via localStorage (no default lessons).
   const [lessons, setLessons] = useState<Lesson[]>([]);
+  const [useServer, setUseServer] = useState(false);
 
   // Array of completed day numbers
   const [completedDays, setCompletedDays] = useState<number[]>([]);
@@ -37,21 +38,36 @@ export default function App() {
     setView(nextView);
   };
 
-  // Load configuration on mount
+  // Load configuration on mount. Prefer server storage if available, else localStorage.
   useEffect(() => {
-    try {
-      const savedLessons = localStorage.getItem(LESSONS_STORAGE_KEY);
-      if (savedLessons) {
-        setLessons(JSON.parse(savedLessons));
-      }
+    let didFallback = false;
+    const loadLocal = () => {
+      try {
+        const savedLessons = localStorage.getItem(LESSONS_STORAGE_KEY);
+        if (savedLessons) setLessons(JSON.parse(savedLessons));
 
-      const savedProgress = localStorage.getItem(PROGRESS_STORAGE_KEY);
-      if (savedProgress) {
-        setCompletedDays(JSON.parse(savedProgress));
+        const savedProgress = localStorage.getItem(PROGRESS_STORAGE_KEY);
+        if (savedProgress) setCompletedDays(JSON.parse(savedProgress));
+      } catch (e) {
+        console.error("Local storage load failed:", e);
       }
-    } catch (e) {
-      console.error("Local storage load failed:", e);
-    }
+    };
+
+    fetch('/api/lessons')
+      .then((res) => {
+        if (!res.ok) throw new Error('no server');
+        return res.json();
+      })
+      .then((data: Lesson[]) => {
+        setLessons(data || []);
+        setUseServer(true);
+      })
+      .catch(() => {
+        if (!didFallback) {
+          didFallback = true;
+          loadLocal();
+        }
+      });
   }, []);
 
   // Keep view in sync with browser back/forward.
@@ -66,9 +82,17 @@ export default function App() {
   const persistLessons = (updated: Lesson[]) => {
     setLessons(updated);
     try {
-      localStorage.setItem(LESSONS_STORAGE_KEY, JSON.stringify(updated));
+      if (useServer) {
+        fetch('/api/lessons', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updated),
+        }).catch((e) => console.error('Server save failed', e));
+      } else {
+        localStorage.setItem(LESSONS_STORAGE_KEY, JSON.stringify(updated));
+      }
     } catch (e) {
-      console.error("Lessons save failed:", e);
+      console.error('Lessons save failed:', e);
     }
   };
 
