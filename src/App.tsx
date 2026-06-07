@@ -1,59 +1,76 @@
 import React, { useState, useEffect } from "react";
 import Dashboard from "./components/Dashboard";
 import LessonTestArena from "./components/LessonTestArena";
-import AITutor from "./components/AITutor";
-import { defaultLessons } from "./data/defaultLessons";
+import CreateLesson from "./components/CreateLesson";
 import { playChime } from "./utils/audio";
-import { Lesson, UserProgress } from "./types";
-import { 
-  Sparkles, GraduationCap, ArrowLeft, MessageSquare
-} from "lucide-react";
+import { Lesson } from "./types";
 import { motion, AnimatePresence } from "motion/react";
 
-const LESSONS_STORAGE_KEY = "n4-custom-lessons-data-v2";
-const PROGRESS_STORAGE_KEY = "n4-custom-lessons-progress-v2";
+// v3: drop all previously seeded default lessons from older builds.
+const LESSONS_STORAGE_KEY = "n4-custom-lessons-data-v3";
+const PROGRESS_STORAGE_KEY = "n4-custom-lessons-progress-v3";
+
+type View = "dashboard" | "lesson" | "create";
+
+// Map the current URL path to an app view. Lessons stay in-app state.
+function routeFromPath(path: string): View {
+  return path === "/create" ? "create" : "dashboard";
+}
 
 export default function App() {
-  // Navigation states: "dashboard" | "lesson"
-  const [view, setView] = useState<"dashboard" | "lesson">("dashboard");
+  const [view, setView] = useState<View>(() =>
+    typeof window !== "undefined" ? routeFromPath(window.location.pathname) : "dashboard"
+  );
   const [selectedDayId, setSelectedDayId] = useState<number | null>(null);
-  
-  // Lessons data state loaded dynamically via localStorage
+
+  // Lessons data state loaded dynamically via localStorage (no default lessons).
   const [lessons, setLessons] = useState<Lesson[]>([]);
 
   // Array of completed day numbers
   const [completedDays, setCompletedDays] = useState<number[]>([]);
 
-  // AI Tutor drawer states
-  const [aiTutorOpen, setAiTutorOpen] = useState(false);
-  const [prefillPrompt, setPrefillPrompt] = useState<{ text: string; label: string } | null>(null);
+  // Path-based navigation helper.
+  const navigate = (path: string, nextView: View) => {
+    if (window.location.pathname !== path) {
+      window.history.pushState({}, "", path);
+    }
+    setView(nextView);
+  };
 
   // Load configuration on mount
   useEffect(() => {
     try {
-      // 1. Load dynamic lessons
       const savedLessons = localStorage.getItem(LESSONS_STORAGE_KEY);
       if (savedLessons) {
         setLessons(JSON.parse(savedLessons));
-      } else {
-        // Seed default template lessons
-        setLessons(defaultLessons);
-        localStorage.setItem(LESSONS_STORAGE_KEY, JSON.stringify(defaultLessons));
       }
 
-      // 2. Load progress completed days
       const savedProgress = localStorage.getItem(PROGRESS_STORAGE_KEY);
       if (savedProgress) {
         setCompletedDays(JSON.parse(savedProgress));
       }
     } catch (e) {
       console.error("Local storage load failed:", e);
-      // Fallback
-      setLessons(defaultLessons);
     }
   }, []);
 
+  // Keep view in sync with browser back/forward.
+  useEffect(() => {
+    const onPop = () => setView(routeFromPath(window.location.pathname));
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
   const currentLesson: Lesson | undefined = lessons.find((l) => l.day === selectedDayId);
+
+  const persistLessons = (updated: Lesson[]) => {
+    setLessons(updated);
+    try {
+      localStorage.setItem(LESSONS_STORAGE_KEY, JSON.stringify(updated));
+    } catch (e) {
+      console.error("Lessons save failed:", e);
+    }
+  };
 
   // Mark Day as Completed Toggle
   const handleToggleComplete = (dayNum: number) => {
@@ -74,16 +91,18 @@ export default function App() {
     }
   };
 
-  // Save manual lesson updates (sonsoh video link, shine ug test, durem test)
+  // Save manual lesson updates (listening link, vocab test, grammar test)
   const handleSaveLesson = (updatedLesson: Lesson) => {
-    const updatedLessons = lessons.map((l) => l.day === updatedLesson.day ? updatedLesson : l);
-    setLessons(updatedLessons);
-    try {
-      localStorage.setItem(LESSONS_STORAGE_KEY, JSON.stringify(updatedLessons));
-      alert(`💾 Өдөр ${updatedLesson.day} Хичээлийг амжилттай хадгаллаа!`);
-    } catch (e) {
-      console.error("Lessons save failed:", e);
-    }
+    persistLessons(lessons.map((l) => (l.day === updatedLesson.day ? updatedLesson : l)));
+    alert(`💾 Өдөр ${updatedLesson.day} Хичээлийг амжилттай хадгаллаа!`);
+  };
+
+  // Create a brand new lesson from the /create page.
+  const handleCreateLesson = (newLesson: Lesson) => {
+    const updated = [...lessons, newLesson].sort((a, b) => a.day - b.day);
+    persistLessons(updated);
+    alert(`💾 Өдөр ${newLesson.day} хичээл амжилттай үүслээ!`);
+    navigate("/", "dashboard");
   };
 
   // Open Lesson view
@@ -99,13 +118,13 @@ export default function App() {
       <header className="sticky top-0 z-40 bg-white border-b border-slate-200 px-4 py-3.5 shadow-2xs">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           {/* Logo */}
-          <div 
-            onClick={() => { setView("dashboard"); playChime("click"); }}
+          <div
+            onClick={() => { navigate("/", "dashboard"); playChime("click"); }}
             className="flex items-center space-x-2.5 cursor-pointer hover:opacity-90 transition-opacity"
             id="brand-logo"
           >
-            <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-black text-sm shadow-3xs">
-              日
+            <div className="w-8 h-8 rounded-lg bg-red-300 flex items-center justify-center text-white font-black text-sm shadow-3xs">
+              ❤️
             </div>
             <div>
               <h1 className="font-sans font-black text-slate-900 tracking-tight leading-none text-sm md:text-base">
@@ -115,23 +134,6 @@ export default function App() {
             </div>
           </div>
 
-          <div className="flex items-center space-x-2">
-            {/* Elegant AI Companion tutor shortcut */}
-            <button
-              onClick={() => {
-                setAiTutorOpen(!aiTutorOpen);
-                playChime("click");
-              }}
-              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
-                aiTutorOpen
-                  ? "bg-indigo-600 text-white border-indigo-600 shadow-3xs"
-                  : "bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200"
-              }`}
-            >
-              <MessageSquare className="w-3.5 h-3.5" />
-              <span>Айко багш</span>
-            </button>
-          </div>
         </div>
       </header>
 
@@ -155,6 +157,22 @@ export default function App() {
               </motion.div>
             )}
 
+            {view === "create" && (
+              <motion.div
+                key="create"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.2 }}
+              >
+                <CreateLesson
+                  lessons={lessons}
+                  onCreate={handleCreateLesson}
+                  onBack={() => navigate("/", "dashboard")}
+                />
+              </motion.div>
+            )}
+
             {view === "lesson" && currentLesson && (
               <motion.div
                 key="lesson"
@@ -174,47 +192,7 @@ export default function App() {
             )}
           </AnimatePresence>
         </main>
-
-        {/* AI Tutor Sidebar Companion */}
-        <AnimatePresence>
-          {aiTutorOpen && (
-            <motion.aside
-              initial={{ width: 0, opacity: 0 }}
-              animate={{ width: 360, opacity: 1 }}
-              exit={{ width: 0, opacity: 0 }}
-              transition={{ type: "spring", stiffness: 350, damping: 30 }}
-              className="hidden lg:block h-full border-l border-slate-200 shadow-2xl relative shrink-0 z-30 font-sans"
-            >
-              <AITutor
-                lesson={currentLesson || undefined}
-                prefillPrompt={prefillPrompt}
-                onClearPrefill={() => setPrefillPrompt(null)}
-                onClose={() => setAiTutorOpen(false)}
-              />
-            </motion.aside>
-          )}
-        </AnimatePresence>
       </div>
-
-      {/* Mobile AI Tutor Drawer Fallback */}
-      {aiTutorOpen && (
-        <div className="lg:hidden fixed inset-0 z-50 bg-black/40 flex justify-end" id="mobile-ai-tutor-overlay">
-          <motion.div
-            initial={{ x: "100%" }}
-            animate={{ x: 0 }}
-            exit={{ x: "100%" }}
-            transition={{ type: "tween", duration: 0.25 }}
-            className="w-full max-w-xs h-full"
-          >
-            <AITutor
-              lesson={currentLesson || undefined}
-              prefillPrompt={prefillPrompt}
-              onClearPrefill={() => setPrefillPrompt(null)}
-              onClose={() => setAiTutorOpen(false)}
-            />
-          </motion.div>
-        </div>
-      )}
     </div>
   );
 }

@@ -1,16 +1,14 @@
 import React, { useState } from "react";
 import { Lesson } from "../types";
-import { 
-  BookOpen, CheckCircle, Search, Play, Settings, Sparkles, GraduationCap 
+import {
+  BookOpen, CheckCircle, Search, Play, Sparkles, GraduationCap
 } from "lucide-react";
 import { motion } from "motion/react";
-import { playChime } from "../utils/audio";
 
 interface DashboardProps {
   lessons: Lesson[];
   completedDays: number[];
   onSelectLesson: (id: number) => void;
-  onEditLessonSelect?: (id: number) => void;
 }
 
 export default function Dashboard({
@@ -52,7 +50,7 @@ export default function Dashboard({
           30 Өдрийн Япон хэлний сорилт
         </h2>
         <p className="text-xs text-slate-300 leading-relaxed font-semibold max-w-2xl">
-          Өдөр бүрийн хичээлүүдийг гараар оруулан өөрийн хүссэнээр өөрчлөх боломжтой. Сонсох дасгалын видео линк, шинэ үг болон дүрмийн шалгалтыг оруулаад тестээр мэдлэгээ шалгаарай.
+          7 сарын 5 хүртэл JLPT N4 шалгалтанд хайрыгаа бэлдэхэд зориулж хийлээ амжилт хүсье! Kanji study app аа өдөр болгон бэлдэхээ мартваа хайраа.
         </p>
 
         {/* Simple Progress Bar */}
@@ -180,7 +178,14 @@ export default function Dashboard({
             );
           })}
 
-          {filteredLessons.length === 0 && (
+          {filteredLessons.length === 0 && lessons.length === 0 && (
+            <div className="col-span-full py-16 text-center text-slate-400 space-y-3 bg-white rounded-xl border border-dashed border-slate-300 p-6">
+              <BookOpen className="w-12 h-12 mx-auto text-slate-300" />
+              <p className="font-semibold text-slate-600 text-sm">Одоогоор хичээл алга байна.</p>
+            </div>
+          )}
+
+          {filteredLessons.length === 0 && lessons.length > 0 && (
             <div className="col-span-full py-16 text-center text-slate-400 space-y-3 bg-white rounded-xl border border-slate-200 p-6">
               <BookOpen className="w-12 h-12 mx-auto text-slate-300" />
               <p className="font-semibold text-slate-600 text-sm">Хайлтын илэрц олдсонгүй.</p>

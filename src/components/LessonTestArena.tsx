@@ -1,8 +1,8 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { Lesson, CustomQuestion } from "../types";
-import { 
-  Play, Check, X, ArrowLeft, Video, BookOpen, Compass, 
-  Settings, Save, Plus, Trash2, HelpCircle, CheckCircle2, ChevronRight, AlertCircle
+import {
+  Check, X, ArrowLeft, Video, BookOpen, Compass,
+  Settings, Save, Plus, Trash2, CheckCircle2, ChevronRight, AlertCircle
 } from "lucide-react";
 import { playChime } from "../utils/audio";
 import { motion, AnimatePresence } from "motion/react";
@@ -48,6 +48,24 @@ export default function LessonTestArena({
   
   // Custom states for active step inside learning: "listening" | "vocab" | "grammar"
   const [learnStep, setLearnStep] = useState<"listening" | "vocab" | "grammar">("listening");
+
+  // Hidden gesture: rapidly tapping the step-title bar 10 times opens the editor.
+  // Keeps editing out of regular students' reach without a visible button.
+  const tapCountRef = useRef(0);
+  const lastTapRef = useRef(0);
+  const handleSecretEditTap = () => {
+    const now = Date.now();
+    if (now - lastTapRef.current > 2000) {
+      tapCountRef.current = 0;
+    }
+    lastTapRef.current = now;
+    tapCountRef.current += 1;
+    if (tapCountRef.current >= 10) {
+      tapCountRef.current = 0;
+      setMode("edit");
+      playChime("success");
+    }
+  };
 
   // Editorial Copy of the current lesson
   const [editTitle, setEditTitle] = useState(lesson.title);
@@ -206,23 +224,6 @@ export default function LessonTestArena({
           <ArrowLeft className="w-4 h-4" />
           <span>Самбар руу буцах</span>
         </button>
-
-        <div className="flex items-center space-x-2">
-          <button
-            onClick={() => {
-              setMode(mode === "learn" ? "edit" : "learn");
-              playChime("click");
-            }}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold border flex items-center space-x-1 cursor-pointer transition-all ${
-              mode === "edit"
-                ? "bg-slate-900 border-slate-900 text-white"
-                : "bg-white hover:bg-slate-50 text-slate-700 border-slate-200"
-            }`}
-          >
-            <Settings className="w-4 h-4" />
-            <span>{mode === "learn" ? "Гараар оруулах / Засах" : "Хичээл рүү очих"}</span>
-          </button>
-        </div>
       </div>
 
       {mode === "learn" ? (
@@ -265,8 +266,12 @@ export default function LessonTestArena({
             </button>
           </div>
 
-          {/* Sub Navigation for Learning Steps (Sonsoh, Shine ug test, Durem test) */}
-          <div className="grid grid-cols-3 gap-2 bg-slate-200/60 p-1 rounded-xl border border-slate-200">
+          {/* Sub Navigation for Learning Steps (Sonsoh, Shine ug test, Durem test).
+              Tapping this bar 10x quickly is the hidden gateway into the editor. */}
+          <div
+            onClick={handleSecretEditTap}
+            className="grid grid-cols-3 gap-2 bg-slate-200/60 p-1 rounded-xl border border-slate-200"
+          >
             <button
               onClick={() => { setLearnStep("listening"); playChime("click"); }}
               className={`py-3 rounded-lg text-xs font-bold flex flex-col sm:flex-row items-center justify-center sm:space-x-1.5 cursor-pointer transition-all ${
