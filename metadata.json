@@ -1,0 +1,6 @@
+{
+  "name": "N4 Japanese 30-Day Academy",
+  "description": "An educational N4 Japanese learning application featuring a customizable 30-day curriculum with manual entry for YouTube listening lessons, vocabulary tests, and grammar tests.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
