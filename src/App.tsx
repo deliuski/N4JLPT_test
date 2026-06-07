@@ -66,6 +66,22 @@ export default function App() {
         if (!didFallback) {
           didFallback = true;
           loadLocal();
+          // If localStorage empty, try static public fallback (for deployed static sites)
+          try {
+            fetch('/lessons.json')
+              .then((r) => {
+                if (!r.ok) throw new Error('no static');
+                return r.json();
+              })
+              .then((data: Lesson[]) => {
+                if (Array.isArray(data) && data.length > 0) setLessons(data);
+              })
+              .catch(() => {
+                /* ignore */
+              });
+          } catch (e) {
+            /* ignore */
+          }
         }
       });
   }, []);
