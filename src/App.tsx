@@ -4,10 +4,10 @@ import LessonTestArena from "./components/LessonTestArena";
 import CreateLesson from "./components/CreateLesson";
 import { playChime } from "./utils/audio";
 import { Lesson } from "./types";
+import { fetchLessonsFromFirestore, saveLessonsToFirestore } from "./utils/lessonsStore";
 import { motion, AnimatePresence } from "motion/react";
 
-// v3: drop all previously seeded default lessons from older builds.
-const LESSONS_STORAGE_KEY = "n4-custom-lessons-data-v3";
+// Lessons live in Firestore. Only per-user progress stays in localStorage.
 const PROGRESS_STORAGE_KEY = "n4-custom-lessons-progress-v3";
 
 type View = "dashboard" | "lesson" | "create";
@@ -23,9 +23,8 @@ export default function App() {
   );
   const [selectedDayId, setSelectedDayId] = useState<number | null>(null);
 
-  // Lessons data state loaded dynamically via localStorage (no default lessons).
+  // Lessons data loaded from Firestore.
   const [lessons, setLessons] = useState<Lesson[]>([]);
-  const [useServer, setUseServer] = useState(false);
 
   // Array of completed day numbers
   const [completedDays, setCompletedDays] = useState<number[]>([]);
@@ -38,52 +37,18 @@ export default function App() {
     setView(nextView);
   };
 
-  // Load configuration on mount. Prefer server storage if available, else localStorage.
+  // Load on mount: lessons from Firestore, progress from localStorage.
   useEffect(() => {
-    let didFallback = false;
-    const loadLocal = () => {
-      try {
-        const savedLessons = localStorage.getItem(LESSONS_STORAGE_KEY);
-        if (savedLessons) setLessons(JSON.parse(savedLessons));
+    try {
+      const savedProgress = localStorage.getItem(PROGRESS_STORAGE_KEY);
+      if (savedProgress) setCompletedDays(JSON.parse(savedProgress));
+    } catch (e) {
+      console.error("Progress load failed:", e);
+    }
 
-        const savedProgress = localStorage.getItem(PROGRESS_STORAGE_KEY);
-        if (savedProgress) setCompletedDays(JSON.parse(savedProgress));
-      } catch (e) {
-        console.error("Local storage load failed:", e);
-      }
-    };
-
-    fetch('/api/lessons')
-      .then((res) => {
-        if (!res.ok) throw new Error('no server');
-        return res.json();
-      })
-      .then((data: Lesson[]) => {
-        setLessons(data || []);
-        setUseServer(true);
-      })
-      .catch(() => {
-        if (!didFallback) {
-          didFallback = true;
-          loadLocal();
-          // If localStorage empty, try static public fallback (for deployed static sites)
-          try {
-            fetch('/lessons.json')
-              .then((r) => {
-                if (!r.ok) throw new Error('no static');
-                return r.json();
-              })
-              .then((data: Lesson[]) => {
-                if (Array.isArray(data) && data.length > 0) setLessons(data);
-              })
-              .catch(() => {
-                /* ignore */
-              });
-          } catch (e) {
-            /* ignore */
-          }
-        }
-      });
+    fetchLessonsFromFirestore()
+      .then((data) => setLessons(data || []))
+      .catch((e) => console.error("Firestore load failed:", e));
   }, []);
 
   // Keep view in sync with browser back/forward.
@@ -97,19 +62,9 @@ export default function App() {
 
   const persistLessons = (updated: Lesson[]) => {
     setLessons(updated);
-    try {
-      if (useServer) {
-        fetch('/api/lessons', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(updated),
-        }).catch((e) => console.error('Server save failed', e));
-      } else {
-        localStorage.setItem(LESSONS_STORAGE_KEY, JSON.stringify(updated));
-      }
-    } catch (e) {
-      console.error('Lessons save failed:', e);
-    }
+    saveLessonsToFirestore(updated).catch((e) =>
+      console.error('Firestore save failed', e)
+    );
   };
 
   // Mark Day as Completed Toggle
