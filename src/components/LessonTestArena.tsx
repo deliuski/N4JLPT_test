@@ -1,8 +1,9 @@
 import React, { useState, useRef } from "react";
-import { Lesson, CustomQuestion } from "../types";
+import { Lesson, CustomQuestion, Flashcard, LessonScore, PASS_THRESHOLD } from "../types";
 import {
   Check, X, ArrowLeft, Video, BookOpen, Compass,
-  Settings, Save, Plus, Trash2, CheckCircle2, ChevronRight, AlertCircle
+  Settings, Save, Plus, Trash2, CheckCircle2, ChevronRight, AlertCircle,
+  Layers, RotateCw, Sparkles
 } from "lucide-react";
 import { playChime } from "../utils/audio";
 import { motion, AnimatePresence } from "motion/react";
@@ -12,7 +13,8 @@ interface LessonTestArenaProps {
   onBack: () => void;
   onSaveLesson: (updated: Lesson) => void;
   isCompleted: boolean;
-  onToggleComplete: () => void;
+  score?: LessonScore;
+  onRecordScore: (type: "vocab" | "grammar", percent: number) => void;
 }
 
 // Utility to convert YouTube URL to embed form
@@ -41,13 +43,24 @@ export default function LessonTestArena({
   onBack,
   onSaveLesson,
   isCompleted,
-  onToggleComplete
+  score,
+  onRecordScore
 }: LessonTestArenaProps) {
   // Navigation: "learn" (taking lessons/tests) | "edit" (editing the lesson/test contents manually)
   const [mode, setMode] = useState<"learn" | "edit">("learn");
-  
-  // Custom states for active step inside learning: "listening" | "vocab" | "grammar"
-  const [learnStep, setLearnStep] = useState<"listening" | "vocab" | "grammar">("listening");
+
+  // Custom states for active step inside learning.
+  const [learnStep, setLearnStep] = useState<"listening" | "vocab" | "grammar" | "flashcard">("listening");
+
+  // "Шинэ үг нэмэх" inline form (word + meaning) shown from the lesson header.
+  const [addWordOpen, setAddWordOpen] = useState(false);
+  const [newWord, setNewWord] = useState("");
+  const [newMeaning, setNewMeaning] = useState("");
+
+  // Flashcard study state.
+  const flashcards: Flashcard[] = lesson.flashcards || [];
+  const [cardIndex, setCardIndex] = useState(0);
+  const [cardFlipped, setCardFlipped] = useState(false);
 
   // Hidden gesture: rapidly tapping the step-title bar 10 times opens the editor.
   // Keeps editing out of regular students' reach without a visible button.
@@ -102,6 +115,49 @@ export default function LessonTestArena({
     setGrammarIsAnswered(false);
     setGrammarScore(0);
     setGrammarFinished(false);
+  };
+
+  // Percentages for the performance display.
+  const vocabPercent = score?.vocab ?? 0;
+  const grammarPercent = score?.grammar ?? 0;
+
+  // Add a collected unknown word to the lesson's flashcard deck (persists to Firestore).
+  const handleAddFlashcard = () => {
+    const word = newWord.trim();
+    const meaning = newMeaning.trim();
+    if (!word || !meaning) {
+      alert("Үг болон утгыг хоёуланг нь оруулна уу.");
+      return;
+    }
+    onSaveLesson({
+      ...lesson,
+      flashcards: [...flashcards, { word, meaning }],
+    });
+    setNewWord("");
+    setNewMeaning("");
+    playChime("success");
+  };
+
+  const handleRemoveFlashcard = (index: number) => {
+    onSaveLesson({
+      ...lesson,
+      flashcards: flashcards.filter((_, i) => i !== index),
+    });
+    if (cardIndex >= flashcards.length - 1) setCardIndex(0);
+    setCardFlipped(false);
+    playChime("click");
+  };
+
+  const handleNextCard = () => {
+    setCardFlipped(false);
+    setCardIndex((i) => (i + 1) % Math.max(flashcards.length, 1));
+    playChime("click");
+  };
+
+  const handlePrevCard = () => {
+    setCardFlipped(false);
+    setCardIndex((i) => (i - 1 + flashcards.length) % Math.max(flashcards.length, 1));
+    playChime("click");
   };
 
   // Option submission
@@ -229,48 +285,104 @@ export default function LessonTestArena({
       {mode === "learn" ? (
         /* LEARNING / TESTING VIEW */
         <div className="space-y-6">
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-3xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="space-y-1">
-              <div className="flex items-center space-x-2">
-                <span className="bg-indigo-50 text-indigo-700 px-3 py-0.5 rounded-full text-[11px] font-bold font-mono">
-                  ӨДӨР {lesson.day}
-                </span>
-                <span className="text-[11px] font-bold text-slate-400 bg-slate-100 px-2.5 py-0.5 rounded-full uppercase">
-                  {lesson.theme || "N4 Хичээл"}
-                </span>
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-3xs space-y-4">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center space-x-2">
+                  <span className="bg-indigo-50 text-indigo-700 px-3 py-0.5 rounded-full text-[11px] font-bold font-mono">
+                    ӨДӨР {lesson.day}
+                  </span>
+                  <span className="text-[11px] font-bold text-slate-400 bg-slate-100 px-2.5 py-0.5 rounded-full uppercase">
+                    {lesson.theme || "N4 Хичээл"}
+                  </span>
+                  {isCompleted && (
+                    <span className="inline-flex items-center space-x-1 bg-emerald-50 border border-emerald-200 text-emerald-700 px-2.5 py-0.5 rounded-full text-[11px] font-bold">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>Төгссөн</span>
+                    </span>
+                  )}
+                </div>
+                <h2 className="text-xl font-black text-slate-800">{lesson.title}</h2>
               </div>
-              <h2 className="text-xl font-black text-slate-800">{lesson.title}</h2>
+
+              <button
+                onClick={() => {
+                  setAddWordOpen((o) => !o);
+                  playChime("click");
+                }}
+                className="px-4.5 py-2.5 rounded-xl text-xs font-bold flex items-center space-x-2 transition-all cursor-pointer bg-slate-900 hover:bg-slate-800 text-white shrink-0"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Шинэ үг нэмэх</span>
+              </button>
             </div>
 
-            <button
-              onClick={() => {
-                onToggleComplete();
-                playChime("success");
-              }}
-              className={`px-4.5 py-2.5 rounded-xl text-xs font-bold flex items-center space-x-2 transition-all cursor-pointer ${
-                isCompleted
-                  ? "bg-emerald-50 border border-emerald-200 text-emerald-700 shadow-3xs"
-                  : "bg-slate-900 hover:bg-slate-800 text-white"
-              }`}
-            >
-              {isCompleted ? (
-                <>
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                  <span>Төгссөн гэж тэмдэглэсэн</span>
-                </>
-              ) : (
-                <>
-                  <span>Төгссөн гэж тэмдэглэх</span>
-                </>
+            {/* Performance: best percentages for both tests; lesson auto-completes at 90%+ both. */}
+            <div className="grid grid-cols-2 gap-3">
+              <ScoreBar label="✍️ Шинэ үг тест" percent={vocabPercent} />
+              <ScoreBar label="🧭 Дүрэм тест" percent={grammarPercent} />
+            </div>
+            <p className="text-[11px] text-slate-500 font-semibold">
+              Хоёр шалгалтаа <b className="text-slate-700">{PASS_THRESHOLD}%+</b> өгсөн үед энэ өдөр автоматаар төгссөнд тооцогдоно.
+            </p>
+
+            {/* Inline "Шинэ үг нэмэх" form: 2 inputs (word + meaning). */}
+            <AnimatePresence>
+              {addWordOpen && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="overflow-hidden"
+                >
+                  <div className="bg-slate-50/70 border border-slate-200 rounded-xl p-4 space-y-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-[10.5px] font-bold text-slate-500 uppercase tracking-wide">Үг (Япон/Kanji)</label>
+                        <input
+                          type="text"
+                          value={newWord}
+                          onChange={(e) => setNewWord(e.target.value)}
+                          onKeyDown={(e) => e.key === "Enter" && handleAddFlashcard()}
+                          placeholder="Жишээ: 約束"
+                          className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm font-medium outline-hidden bg-white focus:border-indigo-600"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10.5px] font-bold text-slate-500 uppercase tracking-wide">Утга (Монгол)</label>
+                        <input
+                          type="text"
+                          value={newMeaning}
+                          onChange={(e) => setNewMeaning(e.target.value)}
+                          onKeyDown={(e) => e.key === "Enter" && handleAddFlashcard()}
+                          placeholder="Жишээ: амлалт, гэрээ"
+                          className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-sm font-medium outline-hidden bg-white focus:border-indigo-600"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] text-slate-500 font-semibold">
+                        Цуглуулсан үг: <b className="text-slate-700">{flashcards.length}</b>
+                      </span>
+                      <button
+                        onClick={handleAddFlashcard}
+                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs rounded-lg cursor-pointer flex items-center space-x-1 shadow-3xs"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Флашкард руу нэмэх</span>
+                      </button>
+                    </div>
+                  </div>
+                </motion.div>
               )}
-            </button>
+            </AnimatePresence>
           </div>
 
           {/* Sub Navigation for Learning Steps (Sonsoh, Shine ug test, Durem test).
               Tapping this bar 10x quickly is the hidden gateway into the editor. */}
           <div
             onClick={handleSecretEditTap}
-            className="grid grid-cols-3 gap-2 bg-slate-200/60 p-1 rounded-xl border border-slate-200"
+            className="grid grid-cols-2 md:grid-cols-4 gap-2 bg-slate-200/60 p-1 rounded-xl border border-slate-200"
           >
             <button
               onClick={() => { setLearnStep("listening"); playChime("click"); }}
@@ -281,7 +393,7 @@ export default function LessonTestArena({
               }`}
             >
               <Video className="w-4 h-4 shrink-0 transition-transform group-hover:scale-105" />
-              <span>🎧 Сонсох дасгал</span>
+              <span>🎧 Сонсох</span>
             </button>
 
             <button
@@ -306,6 +418,23 @@ export default function LessonTestArena({
             >
               <Compass className="w-4 h-4 shrink-0" />
               <span>🧭 Дүрэм тест</span>
+            </button>
+
+            <button
+              onClick={() => { setLearnStep("flashcard"); setCardFlipped(false); playChime("click"); }}
+              className={`py-3 rounded-lg text-xs font-bold flex flex-col sm:flex-row items-center justify-center sm:space-x-1.5 cursor-pointer transition-all relative ${
+                learnStep === "flashcard"
+                  ? "bg-white text-primary shadow-3xs font-extrabold"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              <Layers className="w-4 h-4 shrink-0" />
+              <span>📇 Флашкард</span>
+              {flashcards.length > 0 && (
+                <span className="ml-1 bg-indigo-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none">
+                  {flashcards.length}
+                </span>
+              )}
             </button>
           </div>
 
@@ -365,11 +494,22 @@ export default function LessonTestArena({
                 ) : vocabFinished ? (
                   /* FINISH BOARD */
                   <div className="bg-white p-8 rounded-2xl border border-slate-200 text-center space-y-5 shadow-3xs">
-                    <CheckCircle2 className="w-12 h-12 mx-auto text-emerald-500" />
-                    <h3 className="text-lg font-black text-slate-800">Шинэ үгийн сорил дууслаа!</h3>
-                    <p className="text-3xl font-extrabold text-indigo-600 font-mono">
-                      {vocabScore} / {lesson.vocabQuestions.length} Зөв
-                    </p>
+                    {(() => {
+                      const pct = Math.round((vocabScore / lesson.vocabQuestions.length) * 100);
+                      const passed = pct >= PASS_THRESHOLD;
+                      return (
+                        <>
+                          <CheckCircle2 className={`w-12 h-12 mx-auto ${passed ? "text-emerald-500" : "text-amber-500"}`} />
+                          <h3 className="text-lg font-black text-slate-800">Шинэ үгийн сорил дууслаа!</h3>
+                          <p className="text-3xl font-extrabold text-indigo-600 font-mono">
+                            {vocabScore} / {lesson.vocabQuestions.length} Зөв
+                          </p>
+                          <p className={`text-sm font-extrabold ${passed ? "text-emerald-600" : "text-amber-600"}`}>
+                            Гүйцэтгэл: {pct}% {passed ? "✅ Тэнцсэн" : `· ${PASS_THRESHOLD}% хэрэгтэй`}
+                          </p>
+                        </>
+                      );
+                    })()}
                     <div className="flex gap-2 justify-center pt-2">
                       <button
                         onClick={handleResetVocabQuiz}
@@ -453,6 +593,10 @@ export default function LessonTestArena({
                               setVocabIsAnswered(false);
                             } else {
                               setVocabFinished(true);
+                              onRecordScore(
+                                "vocab",
+                                Math.round((vocabScore / lesson.vocabQuestions.length) * 100)
+                              );
                             }
                             playChime("click");
                           }}
@@ -483,11 +627,22 @@ export default function LessonTestArena({
                 ) : grammarFinished ? (
                   /* FINISH BOARD */
                   <div className="bg-white p-8 rounded-2xl border border-slate-200 text-center space-y-5 shadow-3xs">
-                    <CheckCircle2 className="w-12 h-12 mx-auto text-emerald-500" />
-                    <h3 className="text-lg font-black text-slate-800">Дүрмийн сорил дууслаа!</h3>
-                    <p className="text-3xl font-extrabold text-indigo-600 font-mono">
-                      {grammarScore} / {lesson.grammarQuestions.length} Зөв
-                    </p>
+                    {(() => {
+                      const pct = Math.round((grammarScore / lesson.grammarQuestions.length) * 100);
+                      const passed = pct >= PASS_THRESHOLD;
+                      return (
+                        <>
+                          <CheckCircle2 className={`w-12 h-12 mx-auto ${passed ? "text-emerald-500" : "text-amber-500"}`} />
+                          <h3 className="text-lg font-black text-slate-800">Дүрмийн сорил дууслаа!</h3>
+                          <p className="text-3xl font-extrabold text-indigo-600 font-mono">
+                            {grammarScore} / {lesson.grammarQuestions.length} Зөв
+                          </p>
+                          <p className={`text-sm font-extrabold ${passed ? "text-emerald-600" : "text-amber-600"}`}>
+                            Гүйцэтгэл: {pct}% {passed ? "✅ Тэнцсэн" : `· ${PASS_THRESHOLD}% хэрэгтэй`}
+                          </p>
+                        </>
+                      );
+                    })()}
                     <div className="flex gap-2 justify-center pt-2">
                       <button
                         onClick={handleResetGrammarQuiz}
@@ -567,6 +722,10 @@ export default function LessonTestArena({
                               setGrammarIsAnswered(false);
                             } else {
                               setGrammarFinished(true);
+                              onRecordScore(
+                                "grammar",
+                                Math.round((grammarScore / lesson.grammarQuestions.length) * 100)
+                              );
                             }
                             playChime("click");
                           }}
@@ -576,6 +735,110 @@ export default function LessonTestArena({
                         </button>
                       </div>
                     )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {learnStep === "flashcard" && (
+              <div className="space-y-4">
+                {flashcards.length === 0 ? (
+                  <div className="bg-white p-12 text-center rounded-2xl border border-slate-200 space-y-3 shadow-3xs">
+                    <Layers className="w-10 h-10 mx-auto text-slate-300" />
+                    <p className="text-xs text-slate-600 font-bold">Цуглуулсан үг алга байна.</p>
+                    <p className="text-[11px] text-slate-500 font-semibold max-w-sm mx-auto">
+                      Хичээл үзэх явцдаа мэдэхгүй үгтэй тааралдвал дээрх <b>“Шинэ үг нэмэх”</b> товчоор нэмээрэй — энд флашкард болж цээжлэх боломжтой.
+                    </p>
+                    <button
+                      onClick={() => { setAddWordOpen(true); playChime("click"); }}
+                      className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-[11px] font-bold cursor-pointer inline-flex items-center space-x-1"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Шинэ үг нэмэх</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {/* Flippable flashcard */}
+                    <div className="bg-white rounded-2xl border border-slate-200 shadow-3xs p-6 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-mono font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded">
+                          Карт {cardIndex + 1} / {flashcards.length}
+                        </span>
+                        <span className="text-[11px] text-slate-400 font-bold flex items-center space-x-1">
+                          <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                          <span>Дарж эргүүлэх</span>
+                        </span>
+                      </div>
+
+                      <button
+                        onClick={() => { setCardFlipped((f) => !f); playChime("click"); }}
+                        className="w-full min-h-[180px] rounded-2xl border-2 border-dashed border-slate-200 hover:border-indigo-300 bg-slate-50/50 flex flex-col items-center justify-center p-6 cursor-pointer transition-all relative group"
+                      >
+                        <span className="absolute top-3 left-3 text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                          {cardFlipped ? "Утга" : "Үг"}
+                        </span>
+                        <AnimatePresence mode="wait">
+                          <motion.span
+                            key={cardFlipped ? "back" : "front"}
+                            initial={{ opacity: 0, rotateX: 90 }}
+                            animate={{ opacity: 1, rotateX: 0 }}
+                            exit={{ opacity: 0, rotateX: -90 }}
+                            transition={{ duration: 0.18 }}
+                            className={`text-center font-black text-slate-800 ${cardFlipped ? "text-2xl" : "text-4xl"}`}
+                          >
+                            {cardFlipped ? flashcards[cardIndex].meaning : flashcards[cardIndex].word}
+                          </motion.span>
+                        </AnimatePresence>
+                      </button>
+
+                      <div className="flex items-center justify-between gap-2">
+                        <button
+                          onClick={handlePrevCard}
+                          className="px-4 py-2 border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-bold cursor-pointer"
+                        >
+                          ← Өмнөх
+                        </button>
+                        <button
+                          onClick={() => { setCardFlipped((f) => !f); playChime("click"); }}
+                          className="flex-1 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold cursor-pointer inline-flex items-center justify-center space-x-1"
+                        >
+                          <RotateCw className="w-3.5 h-3.5" />
+                          <span>Эргүүлэх</span>
+                        </button>
+                        <button
+                          onClick={handleNextCard}
+                          className="px-4 py-2 border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-bold cursor-pointer"
+                        >
+                          Дараах →
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Collected words list with delete */}
+                    <div className="bg-white rounded-2xl border border-slate-200 shadow-3xs p-4 space-y-2">
+                      <h4 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider px-1">
+                        Цуглуулсан үгс ({flashcards.length})
+                      </h4>
+                      <div className="divide-y divide-slate-100">
+                        {flashcards.map((fc, i) => (
+                          <div key={i} className="flex items-center justify-between py-2 px-1 group">
+                            <div className="flex items-center space-x-3 min-w-0">
+                              <span className="font-bold text-slate-800 text-sm shrink-0">{fc.word}</span>
+                              <span className="text-slate-300">—</span>
+                              <span className="text-slate-600 text-sm truncate">{fc.meaning}</span>
+                            </div>
+                            <button
+                              onClick={() => handleRemoveFlashcard(i)}
+                              className="text-slate-300 hover:text-rose-500 p-1 rounded-md transition-colors cursor-pointer shrink-0"
+                              title="Устгах"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
@@ -828,6 +1091,27 @@ export default function LessonTestArena({
           </div>
         </motion.div>
       )}
+    </div>
+  );
+}
+
+// Compact performance bar showing a test's best percentage, green once passed.
+function ScoreBar({ label, percent }: { label: string; percent: number }) {
+  const passed = percent >= PASS_THRESHOLD;
+  return (
+    <div className="space-y-1">
+      <div className="flex justify-between items-center text-[11px] font-bold">
+        <span className="text-slate-600">{label}</span>
+        <span className={passed ? "text-emerald-600" : "text-slate-500"}>
+          {percent}%{passed ? " ✅" : ""}
+        </span>
+      </div>
+      <div className="bg-slate-100 h-1.5 rounded-full overflow-hidden">
+        <div
+          className={`h-full transition-all duration-300 ${passed ? "bg-emerald-500" : "bg-indigo-400"}`}
+          style={{ width: `${percent}%` }}
+        />
+      </div>
     </div>
   );
 }

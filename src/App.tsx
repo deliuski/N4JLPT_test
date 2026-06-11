@@ -3,12 +3,13 @@ import Dashboard from "./components/Dashboard";
 import LessonTestArena from "./components/LessonTestArena";
 import CreateLesson from "./components/CreateLesson";
 import { playChime } from "./utils/audio";
-import { Lesson } from "./types";
+import { Lesson, LessonScore, PASS_THRESHOLD } from "./types";
 import { fetchLessonsFromFirestore, saveLessonsToFirestore } from "./utils/lessonsStore";
 import { motion, AnimatePresence } from "motion/react";
 
 // Lessons live in Firestore. Only per-user progress stays in localStorage.
 const PROGRESS_STORAGE_KEY = "n4-custom-lessons-progress-v3";
+const SCORES_STORAGE_KEY = "n4-lesson-scores-v1";
 
 type View = "dashboard" | "lesson" | "create";
 
@@ -28,6 +29,8 @@ export default function App() {
 
   // Array of completed day numbers
   const [completedDays, setCompletedDays] = useState<number[]>([]);
+  // Best test percentages per day, keyed by day number.
+  const [scores, setScores] = useState<Record<number, LessonScore>>({});
 
   // Path-based navigation helper.
   const navigate = (path: string, nextView: View) => {
@@ -42,6 +45,9 @@ export default function App() {
     try {
       const savedProgress = localStorage.getItem(PROGRESS_STORAGE_KEY);
       if (savedProgress) setCompletedDays(JSON.parse(savedProgress));
+
+      const savedScores = localStorage.getItem(SCORES_STORAGE_KEY);
+      if (savedScores) setScores(JSON.parse(savedScores));
     } catch (e) {
       console.error("Progress load failed:", e);
     }
@@ -67,22 +73,34 @@ export default function App() {
     );
   };
 
-  // Mark Day as Completed Toggle
-  const handleToggleComplete = (dayNum: number) => {
-    let updated: number[];
-    if (completedDays.includes(dayNum)) {
-      updated = completedDays.filter((d) => d !== dayNum);
-      playChime("error");
-    } else {
-      updated = [...completedDays, dayNum];
-      playChime("success");
-      alert(`🎉 Баяр хүргэе! ${dayNum} дахь өдрийн сорилтуудыг амжилтай дуусгалаа!`);
-    }
-    setCompletedDays(updated);
+  // Record a finished test's percentage. Keeps the best score, and auto-marks
+  // the day completed once BOTH tests reach the pass threshold (90%+).
+  const handleRecordScore = (dayNum: number, type: "vocab" | "grammar", percent: number) => {
+    const prev = scores[dayNum] || { vocab: 0, grammar: 0 };
+    const updatedScore: LessonScore = {
+      ...prev,
+      [type]: Math.max(prev[type], percent),
+    };
+    const nextScores = { ...scores, [dayNum]: updatedScore };
+    setScores(nextScores);
     try {
-      localStorage.setItem(PROGRESS_STORAGE_KEY, JSON.stringify(updated));
+      localStorage.setItem(SCORES_STORAGE_KEY, JSON.stringify(nextScores));
     } catch (e) {
-      console.error("Progress save failed:", e);
+      console.error("Scores save failed:", e);
+    }
+
+    const passed =
+      updatedScore.vocab >= PASS_THRESHOLD && updatedScore.grammar >= PASS_THRESHOLD;
+    if (passed && !completedDays.includes(dayNum)) {
+      const nextDays = [...completedDays, dayNum];
+      setCompletedDays(nextDays);
+      try {
+        localStorage.setItem(PROGRESS_STORAGE_KEY, JSON.stringify(nextDays));
+      } catch (e) {
+        console.error("Progress save failed:", e);
+      }
+      playChime("success");
+      alert(`🎉 Баяр хүргэе! Өдөр ${dayNum}-ийн 2 шалгалтыг 90%+ оноогоор давж, амжилттай төгслөө!`);
     }
   };
 
@@ -147,6 +165,7 @@ export default function App() {
                 <Dashboard
                   lessons={lessons}
                   completedDays={completedDays}
+                  scores={scores}
                   onSelectLesson={handleSelectDay}
                 />
               </motion.div>
@@ -181,7 +200,10 @@ export default function App() {
                   onBack={() => setView("dashboard")}
                   onSaveLesson={handleSaveLesson}
                   isCompleted={completedDays.includes(currentLesson.day)}
-                  onToggleComplete={() => handleToggleComplete(currentLesson.day)}
+                  score={scores[currentLesson.day]}
+                  onRecordScore={(type, percent) =>
+                    handleRecordScore(currentLesson.day, type, percent)
+                  }
                 />
               </motion.div>
             )}

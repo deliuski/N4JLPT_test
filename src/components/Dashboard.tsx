@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Lesson } from "../types";
+import { Lesson, LessonScore } from "../types";
 import {
   BookOpen, CheckCircle, Search, Play, Sparkles, GraduationCap
 } from "lucide-react";
@@ -8,12 +8,14 @@ import { motion } from "motion/react";
 interface DashboardProps {
   lessons: Lesson[];
   completedDays: number[];
+  scores: Record<number, LessonScore>;
   onSelectLesson: (id: number) => void;
 }
 
 export default function Dashboard({
   lessons,
   completedDays,
+  scores,
   onSelectLesson,
 }: DashboardProps) {
   const [searchQuery, setSearchQuery] = useState("");
@@ -116,6 +118,7 @@ export default function Dashboard({
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5" id="lessons-grid">
           {filteredLessons.map((lesson) => {
             const isCompleted = completedDays.includes(lesson.day);
+            const score = scores[lesson.day];
 
             return (
               <motion.div
@@ -149,6 +152,22 @@ export default function Dashboard({
                       Сорил: {lesson.vocabQuestions.length} үг • {lesson.grammarQuestions.length} дүрэм
                     </p>
                   </div>
+
+                  {/* Performance: best test percentages once attempted */}
+                  {score && (score.vocab > 0 || score.grammar > 0) && (
+                    <div className="flex items-center gap-1.5 pt-0.5">
+                      <span className={`text-[9.5px] font-bold font-mono px-1.5 py-0.5 rounded ${
+                        score.vocab >= 90 ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"
+                      }`}>
+                        Үг {score.vocab}%
+                      </span>
+                      <span className={`text-[9.5px] font-bold font-mono px-1.5 py-0.5 rounded ${
+                        score.grammar >= 90 ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"
+                      }`}>
+                        Дүрэм {score.grammar}%
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Subtask Indicators showing completed ticks */}
